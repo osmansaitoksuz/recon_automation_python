@@ -24,8 +24,11 @@ Python libraries:
 
 
 A wordlist must.
+
 default wordlist: /usr/share/wordlists/dirb/common.txt
+
 if not downloaded;
+
   "sudo apt install wordlists"
 
 -*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
