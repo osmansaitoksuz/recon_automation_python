@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import json
 import subprocess
 import requests
 import threading
@@ -121,11 +122,12 @@ class ReconTool:
         except (subprocess.TimeoutExpired, FileNotFoundError):
             self.log("Assetfinder bulunamadı veya timeout", Colors.YELLOW)
         
-        # Amass
+       # Amass
+
         self.log("Amass çalıştırılıyor...")
         try:
             result = subprocess.run(['amass', 'enum', '-d', self.domain, '-passive'], 
-                                  capture_output=True, text=True, timeout=600)
+                                  capture_output=True, text=True, timeout=300)
             if result.returncode == 0:
                 for line in result.stdout.strip().split('\n'):
                     if line.strip():
@@ -167,62 +169,75 @@ class ReconTool:
         
         return list(all_subdomains)
     
-    def check_single_host(self, host):
-        """Tek bir host için live kontrolü"""
-        try:
-            for protocol in ['https', 'http']:
-                try:
-                    response = requests.get(f'{protocol}://{host}', 
-                                          timeout=5, 
-                                          allow_redirects=True,
-                                          verify=False)
-                    if response.status_code:
-                        return f"{protocol}://{host}"
-                except:
-                    continue
-            return None
-        except:
-            return None
-    
     def live_host_detection(self, subdomains_list=None):
-        """2. Aşama: Live Host Detection"""
-        self.log("Live host kontrolü başlatılıyor...", Colors.GREEN)
-        
+        """2. Aşama: Live Host Detection - httpx ile"""
+        self.log("Live host kontrolü httpx ile başlatılıyor...", Colors.GREEN)
+
         if subdomains_list is None:
             if not os.path.exists(self.subdomains_file):
                 self.log("Subdomain dosyası bulunamadı! Önce subdomain enumeration yapın.", Colors.RED)
                 return []
-            
+
             with open(self.subdomains_file, 'r') as f:
                 subdomains_list = [line.strip() for line in f if line.strip()]
-        
-        live_hosts = []
-        
-        with ThreadPoolExecutor(max_workers=self.threads) as executor:
-            future_to_host = {executor.submit(self.check_single_host, host): host 
-                            for host in subdomains_list}
-            
-            for future in as_completed(future_to_host):
-                host = future_to_host[future]
-                try:
-                    result = future.result()
-                    if result:
-                        live_hosts.append(result)
-                        self.log(f"Live: {result}", Colors.GREEN)
-                except Exception as e:
-                    pass
-        
-        if live_hosts:
-            with open(self.live_hosts_file, 'w') as f:
-                for host in sorted(live_hosts):
-                    f.write(f"{host}\n")
-            
-            self.log(f"Toplam {len(live_hosts)} live host bulundu", Colors.GREEN)
-            self.log(f"Sonuçlar kaydedildi: {self.live_hosts_file}", Colors.GREEN)
-        else:
-            self.log("Hiç live host bulunamadı", Colors.RED)
-        
-        return live_hosts
+
+        temp_input = f"/tmp/httpx_input_{int(time.time())}.txt"
+        with open(temp_input, 'w') as f:
+            for sub in subdomains_list:
+                f.write(sub + "\n")
+
+        try:
+            result = subprocess.run([
+                'gohttpx',
+                '-silent',
+                '-timeout', '5',
+                '-threads', str(self.threads),
+                '-no-color',
+                '-status-code',
+                '-title',
+                '-tech-detect',
+                '-json'
+            ],
+            stdin=open(temp_input, 'r'),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=600)
+
+            os.remove(temp_input)
+
+            live_hosts = []
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                        if 'url' in data:
+                            live_hosts.append(data['url'])
+                            self.log(f"Live: {data['url']} - {data.get('status_code', '')} - {data.get('title', '')}", Colors.GREEN)
+                    except Exception as e:
+                        self.log(f"httpx çıktısı işlenemedi: {str(e)}", Colors.YELLOW)
+
+            if live_hosts:
+                with open(self.live_hosts_file, 'w') as f:
+                    for host in sorted(set(live_hosts)):
+                        f.write(f"{host}\n")
+
+                self.log(f"Toplam {len(live_hosts)} canlı host bulundu", Colors.GREEN)
+                self.log(f"Sonuçlar kaydedildi: {self.live_hosts_file}", Colors.GREEN)
+            else:
+                self.log("Hiç canlı host bulunamadı", Colors.RED)
+
+            return live_hosts
+
+        except subprocess.TimeoutExpired:
+            self.log("httpx zaman aşımına uğradı", Colors.RED)
+            return []
+        except FileNotFoundError:
+            self.log("httpx bulunamadı. Kurulu olduğundan emin olun.", Colors.RED)
+            return []
+
     
     def advanced_nmap_scan(self, hosts):
         """Gelişmiş Nmap Taraması"""
@@ -317,6 +332,7 @@ class ReconTool:
         else:
             self.log("Açık port bulunamadı", Colors.YELLOW)
     
+
     def directory_bruteforce(self, live_hosts_list=None):
         """4. Aşama: Directory Bruteforce"""
         self.log("Directory bruteforce başlatılıyor...", Colors.GREEN)
@@ -358,6 +374,7 @@ class ReconTool:
             self.log(f"Directory taraması tamamlandı: {self.directories_file}", Colors.GREEN)
         else:
             self.log("Directory bulunamadı", Colors.YELLOW)
+
     
     def take_screenshots(self, live_hosts_list=None):
         """5. Aşama: Screenshot Alma"""
