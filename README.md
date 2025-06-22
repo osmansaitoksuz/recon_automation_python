@@ -8,6 +8,8 @@ Required Tools(Must be added to PATH):
 
 *amass
 
+*httpx(it defined as "gohttpx" in go directory. Because there is another package named httpx which a Python library.)
+
 *nmap
 
 *gobuster
